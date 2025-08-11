@@ -1,5 +1,4 @@
 "use client";
-
 import type React from "react";
 
 import { useState, useEffect } from "react";
@@ -26,14 +25,39 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Database, Lock, Eye, Plus, Search } from "lucide-react";
 
+interface MedicalRecordData {
+  recordType: string;
+  title: string;
+  description: string;
+  diagnosisCode?: string;
+  isSensitive: boolean;
+}
+
+interface InsertDataState {
+  dataType: string;
+  patientId: string;
+  data: MedicalRecordData;
+}
+
+interface RetrieveDataState {
+  dataType: string;
+  patientId: string;
+  results: any;
+}
+
 export default function DataManagementPage() {
   const [userType, setUserType] = useState("");
-  const [insertData, setInsertData] = useState({
+  const [insertData, setInsertData] = useState<InsertDataState>({
     dataType: "",
     patientId: "",
-    data: {},
+    data: {
+      recordType: "diagnosis",
+      title: "",
+      description: "",
+      isSensitive: false,
+    },
   });
-  const [retrieveData, setRetrieveData] = useState({
+  const [retrieveData, setRetrieveData] = useState<RetrieveDataState>({
     dataType: "",
     patientId: "",
     results: null,
@@ -53,6 +77,33 @@ export default function DataManagementPage() {
 
     try {
       const token = localStorage.getItem("token");
+      if (!token) {
+        setMessage("❌ No authentication token found. Please log in again.");
+        return;
+      }
+
+      // Validate required fields
+      if (!insertData.patientId || !insertData.data.title) {
+        setMessage(
+          "❌ Please fill in all required fields (Patient ID and Title)"
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Prepare the request data with all required fields
+      const requestData = {
+        patient_id: parseInt(insertData.patientId) || null,
+        record_type: insertData.data.recordType || "diagnosis",
+        title: insertData.data.title,
+        description: insertData.data.description || "",
+        diagnosis_code: insertData.data.diagnosisCode || "",
+        is_sensitive: insertData.data.isSensitive || false,
+        record_date: new Date().toISOString().split("T")[0], // Today's date in YYYY-MM-DD format
+      };
+
+      console.log("Sending request with data:", requestData);
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/records`,
         {
@@ -61,23 +112,36 @@ export default function DataManagementPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            ...insertData.data,
-            patientId: parseInt(insertData.patientId) || null,
-          }),
+          body: JSON.stringify(requestData),
         }
       );
 
       const result = await response.json();
+      console.log(
+        "Response status:",
+        response.status,
+        "Response data:",
+        result
+      );
 
       if (response.ok) {
-        setMessage(`✅ ${result.message}`);
-        setInsertData({ dataType: "", patientId: "", data: {} });
+        setMessage(`✅ ${result.message || "Record created successfully"}`);
+        setInsertData({
+          dataType: "",
+          patientId: "",
+          data: {
+            recordType: "diagnosis",
+            title: "",
+            description: "",
+            isSensitive: false,
+          },
+        });
       } else {
-        setMessage(`❌ ${result.error}`);
+        setMessage(`❌ ${result.error || "Failed to create record"}`);
       }
     } catch (error) {
-      setMessage("❌ Network error occurred");
+      console.error("Error in handleInsertData:", error);
+      setMessage("❌ An error occurred while creating the record");
     } finally {
       setLoading(false);
     }
@@ -212,7 +276,7 @@ export default function DataManagementPage() {
             <div>
               <Label htmlFor="recordType">Record Type</Label>
               <Select
-                value={(insertData.data as any).recordType || "diagnosis"}
+                value={insertData.data.recordType || "diagnosis"}
                 onValueChange={(value) =>
                   setInsertData((prev) => ({
                     ...prev,
@@ -236,7 +300,7 @@ export default function DataManagementPage() {
               <Label htmlFor="title">Title</Label>
               <Input
                 id="title"
-                value={(insertData.data as any).title || ""}
+                value={insertData.data.title || ""}
                 onChange={(e) =>
                   setInsertData((prev) => ({
                     ...prev,
@@ -249,7 +313,7 @@ export default function DataManagementPage() {
               <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
-                value={(insertData.data as any).description || ""}
+                value={insertData.data.description || ""}
                 onChange={(e) =>
                   setInsertData((prev) => ({
                     ...prev,
@@ -258,6 +322,39 @@ export default function DataManagementPage() {
                 }
                 placeholder="This will be encrypted if classified as sensitive..."
               />
+            </div>
+            <div>
+              <Label htmlFor="diagnosisCode">Diagnosis Code</Label>
+              <Input
+                id="diagnosisCode"
+                value={insertData.data.diagnosisCode || ""}
+                onChange={(e) =>
+                  setInsertData((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, diagnosisCode: e.target.value },
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <Label htmlFor="isSensitive">Is Sensitive</Label>
+              <Select
+                value={insertData.data.isSensitive ? "true" : "false"}
+                onValueChange={(value) =>
+                  setInsertData((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, isSensitive: value === "true" },
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select sensitivity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="true">Yes</SelectItem>
+                  <SelectItem value="false">No</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         );
@@ -335,7 +432,13 @@ export default function DataManagementPage() {
                         setInsertData((prev) => ({
                           ...prev,
                           dataType: value,
-                          data: {},
+                          data: {
+                            recordType: "",
+                            title: "",
+                            description: "",
+                            isSensitive: false,
+                            // diagnosisCode is optional, so we can omit it or provide a default
+                          },
                         }))
                       }
                     >

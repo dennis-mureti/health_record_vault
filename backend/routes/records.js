@@ -149,23 +149,69 @@ router.post("/", authenticateToken, async (req, res) => {
       record_date,
     } = req.body;
 
+    // Input validation
+    if (!patient_id || !record_type || !title || !record_date) {
+      return res.status(400).json({
+        error: "Missing required fields",
+        required: ["patient_id", "record_type", "title", "record_date"],
+      });
+    }
+
+    // Verify patient exists
+    const patient = await db.get(
+      "SELECT patient_id FROM patients WHERE patient_id = ?",
+      [patient_id]
+    );
+    if (!patient) {
+      return res.status(404).json({ error: "Patient not found" });
+    }
+
+    console.log("Creating record with data:", {
+      patient_id,
+      doctor_id: req.user.userId,
+      record_type,
+      title,
+      description,
+      diagnosis_code,
+      is_sensitive: is_sensitive || false,
+      record_date,
+    });
+
     const result = await db.run(
       "INSERT INTO medical_records (patient_id, doctor_id, record_type, title, description, diagnosis_code, is_sensitive, record_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [
         patient_id,
-        req.user.id,
+        req.user.userId,
         record_type,
         title,
-        description,
-        diagnosis_code,
-        is_sensitive,
+        description || null,
+        diagnosis_code || null,
+        is_sensitive ? 1 : 0,
         record_date,
       ]
     );
 
-    res.status(201).json({ record_id: result.lastID });
+    if (!result.lastID) {
+      throw new Error("Failed to create record");
+    }
+
+    // Get the newly created record
+    const newRecord = await db.get(
+      "SELECT * FROM medical_records WHERE record_id = ?",
+      [result.lastID]
+    );
+
+    res.status(201).json({
+      message: "Record created successfully",
+      record: newRecord,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error in POST /api/records:", error);
+    res.status(500).json({
+      error: "Failed to create medical record",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
   }
 });
 
